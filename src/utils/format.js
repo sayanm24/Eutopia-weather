@@ -63,6 +63,39 @@ export function dateLong(unix, tzOffset) {
   const d = local(unix, tzOffset)
   return `${DAYS_LONG[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`
 }
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+/** "Friday, 21 November 2026" */
+export function dateFull(unix, tzOffset) {
+  const d = local(unix, tzOffset)
+  return `${DAYS_LONG[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+}
+/** "21 Nov" */
+export function dayMonth(unix, tzOffset) {
+  const d = local(unix, tzOffset)
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`
+}
+
+// Numeric conversions for charts. Left unrounded so a value is rounded once, at display time,
+// and always agrees with the text formatters above. null stays null.
+export const tempNum = (c, units) => (ok(c) ? (units === 'imperial' ? c * 1.8 + 32 : c) : null)
+export const windNum = (ms, units) => (ok(ms) ? (units === 'imperial' ? ms * 2.23694 : ms * 3.6) : null)
+export const pressureNum = (hpa, units) => (ok(hpa) ? (units === 'imperial' ? hpa * 0.02953 : hpa) : null)
+export const distanceNum = (m, units) => (ok(m) ? (units === 'imperial' ? m / 1609.344 : m / 1000) : null)
+export const UNIT = {
+  temp: (units) => (units === 'imperial' ? '°F' : '°C'),
+  wind: (units) => (units === 'imperial' ? 'mph' : 'km/h'),
+  pressure: (units) => (units === 'imperial' ? 'inHg' : 'hPa'),
+  distance: (units) => (units === 'imperial' ? 'mi' : 'km'),
+}
+/** A pressure change in display units, signed: "+2.1 hPa" */
+export function pressureDelta(hpa, units) {
+  if (!ok(hpa)) return DASH
+  const v = units === 'imperial' ? (hpa * 0.02953).toFixed(2) : hpa.toFixed(1)
+  return `${hpa > 0 ? '+' : hpa < 0 ? '' : '±'}${v} ${UNIT.pressure(units)}`
+}
+export const mm = (v) => (ok(v) ? `${v.toFixed(1)} mm` : DASH)
+export const pct = (v) => (ok(v) ? `${Math.round(v)}%` : DASH)
+
 export const sameLocalDay = (a, b, tzOffset) =>
   Math.floor((a + tzOffset) / 86400) === Math.floor((b + tzOffset) / 86400)
 

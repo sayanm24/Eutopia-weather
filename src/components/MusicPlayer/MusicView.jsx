@@ -60,8 +60,9 @@ function NowPlaying() {
   )
 }
 
-export default function MusicView({ resolved, simulated }) {
-  const mood = resolved.music
+export default function MusicView({ resolved, simulated, override = null }) {
+  // `override` carries a forecast day's mood when opened from the Forecast page.
+  const mood = override?.music || resolved.music
   const { track: current, playing, playTrack, toggle } = usePlayer()
   const [mix, setMix] = useState(mood.mixes[0])
   const [input, setInput] = useState('')
@@ -92,7 +93,9 @@ export default function MusicView({ resolved, simulated }) {
   return (
     <div className="view music">
       <header className="view-head">
-        <p className="eyebrow">{simulated ? 'Music for the simulated scene' : 'Music for this weather'} · {resolved.label}</p>
+        <p className="eyebrow">
+          {override ? `Music for ${override.label}` : `${simulated ? 'Music for the simulated scene' : 'Music for this weather'} · ${resolved.label}`}
+        </p>
         <h1>{mood.title}</h1>
         <p>{mood.blurb}</p>
         <ul className="chips">{mood.genres.map((g) => <li key={g}>{g}</li>)}</ul>

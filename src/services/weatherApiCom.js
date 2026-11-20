@@ -55,44 +55,95 @@ const kphToMs = (v) => (v == null ? null : v / 3.6)
 const cond = (c) => (c ? { provider: 'wa', code: c.code, description: c.text } : null)
 const chance = (rain, snow) => (rain == null && snow == null ? null : Math.max(rain ?? 0, snow ?? 0))
 
-/** One request returns location, current conditions, hourly and daily forecast. */
+const num = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v))
+
+const mapHour = (h) => ({
+  dt: h.time_epoch,
+  temp: h.temp_c,
+  feelsLike: h.feelslike_c ?? null,
+  humidity: h.humidity ?? null,
+  dewPoint: h.dewpoint_c ?? null,
+  pressure: h.pressure_mb ?? null,
+  pop: chance(h.chance_of_rain, h.chance_of_snow),
+  precip: h.precip_mm ?? null,
+  rain: null, // WeatherAPI.com reports total precipitation only
+  snow: h.snow_cm ?? null,
+  cloudPct: h.cloud ?? null,
+  visibility: h.vis_km != null ? h.vis_km * 1000 : null,
+  uv: h.uv ?? null,
+  isDay: h.is_day === 1,
+  windSpeed: kphToMs(h.wind_kph),
+  windDeg: h.wind_degree ?? null,
+  windGust: kphToMs(h.gust_kph),
+  cond: cond(h.condition),
+})
+
+const mapAlert = (a) => ({
+  headline: a.headline || a.event || 'Weather alert',
+  event: a.event || null,
+  severity: a.severity || null,
+  areas: a.areas || null,
+  description: a.desc || null,
+  instruction: a.instruction || null,
+  effective: a.effective ? Math.floor(Date.parse(a.effective) / 1000) : null,
+  expires: a.expires ? Math.floor(Date.parse(a.expires) / 1000) : null,
+})
+
+/** One request returns location, current conditions, hourly and daily forecast, astronomy and alerts. */
 export async function fetchForecast(lat, lon, opts) {
-  const d = await call(`/forecast.json?q=${lat},${lon}&days=7&aqi=no&alerts=no`, opts)
-  const tzOffset = tzOffsetSeconds(d.location?.tz_id)
+  const d = await call(`/forecast.json?q=${lat},${lon}&days=7&aqi=no&alerts=yes`, opts)
+  const tzId = d.location?.tz_id
+  const tzOffset = tzOffsetSeconds(tzId)
   const nowSec = Date.now() / 1000
   const days = d.forecast?.forecastday || []
 
   const daily = days.map((f) => {
-    const midnight = f.date_epoch - tzOffset // date_epoch is midnight UTC of the local calendar date
-    const rise = clockToSeconds(f.astro?.sunrise)
-    const set = clockToSeconds(f.astro?.sunset)
+    // date_epoch is midnight UTC of the local calendar date; use the offset in force on that date (DST-safe).
+    const offset = tzOffsetSeconds(tzId, new Date((f.date_epoch + 43200) * 1000))
+    const midnight = f.date_epoch - offset
+    const at = (text) => { const s = clockToSeconds(text); return s == null ? null : midnight + s }
+    const rise = at(f.astro?.sunrise)
+    const set = at(f.astro?.sunset)
+    const illum = num(f.astro?.moon_illumination)
     return {
       dt: midnight,
+      date: f.date,
+      tzOffset: offset,
       min: f.day.mintemp_c,
       max: f.day.maxtemp_c,
+      feelsMin: null,
+      feelsMax: null,
+      avgTemp: f.day.avgtemp_c ?? null,
+      avgHumidity: f.day.avghumidity ?? null,
+      avgVis: f.day.avgvis_km != null ? f.day.avgvis_km * 1000 : null,
       pop: chance(f.day.daily_chance_of_rain, f.day.daily_chance_of_snow),
-      precip: f.day.totalprecip_mm ?? 0,
+      precip: f.day.totalprecip_mm ?? null,
+      rainSum: null,
+      snowSum: f.day.totalsnow_cm ?? null,
+      precipHours: null,
       uvMax: f.day.uv ?? null,
       windMax: kphToMs(f.day.maxwind_kph),
-      sunrise: rise == null ? null : midnight + rise,
-      sunset: set == null ? null : midnight + set,
+      gustMax: null,
+      windDir: null,
+      sunrise: rise,
+      sunset: set,
+      daylight: null,
+      sunshine: null,
+      moon: f.astro?.moon_phase ? {
+        name: f.astro.moon_phase,
+        illumination: illum,
+        moonrise: at(f.astro.moonrise),
+        moonset: at(f.astro.moonset),
+        source: 'WeatherAPI.com',
+      } : null,
       isDay: true,
       cond: cond(f.day.condition),
+      hours: (f.hour || []).map(mapHour),
     }
   })
 
-  const hourly = days.flatMap((f) => f.hour || []).map((h) => ({
-    dt: h.time_epoch,
-    temp: h.temp_c,
-    pop: chance(h.chance_of_rain, h.chance_of_snow),
-    precip: h.precip_mm ?? 0,
-    cloudPct: h.cloud ?? null,
-    visibility: h.vis_km != null ? h.vis_km * 1000 : null,
-    uv: h.uv ?? null,
-    isDay: h.is_day === 1,
-    windSpeed: kphToMs(h.wind_kph),
-    cond: cond(h.condition),
-  })).filter((s) => s.dt > nowSec - 3600).slice(0, 48)
+  const hourly = days.flatMap((f) => f.hour || []).map(mapHour)
+    .filter((s) => s.dt > nowSec - 3600).slice(0, 48)
 
   const c = d.current
   const today = daily.find((x) => nowSec < x.dt + 86400) || daily[0]
@@ -122,6 +173,7 @@ export async function fetchForecast(lat, lon, opts) {
     },
     hourly,
     daily,
+    alerts: (d.alerts?.alert || []).map(mapAlert),
   }
 }
 

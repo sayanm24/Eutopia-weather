@@ -22,8 +22,14 @@ async function viaWeatherApi(location) {
   const w = waRes.value
   const o = omRes.status === 'fulfilled' ? omRes.value : null
   // WeatherAPI.com's free plan returns fewer than 7 days; use Open-Meteo for the full week when needed.
+  // Each day keeps the hourly values from the same provider as its daily values, so a day never mixes sources.
   const waWeek = w.daily.length >= 7
-  const daily = waWeek || !o ? w.daily : o.daily
+  let daily = waWeek || !o ? w.daily : o.daily
+  if (daily !== w.daily) {
+    // Open-Meteo has no astronomy beyond sunrise/sunset: carry WeatherAPI.com's moon data over by calendar date.
+    const moonByDate = new Map(w.daily.map((d) => [d.date, d.moon]))
+    daily = daily.map((d) => (moonByDate.get(d.date) ? { ...d, moon: moonByDate.get(d.date) } : d))
+  }
   const hourly = w.hourly.length >= 24 || !o ? w.hourly : o.hourly
   const forecastSources = [...new Set([
     hourly === w.hourly ? 'WeatherAPI.com' : 'Open-Meteo',
@@ -43,7 +49,14 @@ async function viaWeatherApi(location) {
     current: w.current,
     hourly,
     daily,
-    sources: { current: 'WeatherAPI.com', forecast: forecastSources },
+    // Alerts are a WeatherAPI.com feature; an empty array means "none active", null means "not supported".
+    alerts: w.alerts,
+    sources: {
+      current: 'WeatherAPI.com',
+      forecast: forecastSources,
+      week: daily === w.daily ? 'WeatherAPI.com' : 'Open-Meteo',
+      alerts: 'WeatherAPI.com',
+    },
     notices: { openWeather: null, forecast: null },
   }
 }
@@ -90,9 +103,12 @@ async function viaOpenWeather(location) {
     current,
     hourly: omData?.hourly ?? [],
     daily: omData?.daily ?? [],
+    alerts: null, // neither OpenWeather's free current-weather endpoint nor Open-Meteo provides alerts
     sources: {
       current: owData ? 'OpenWeather' : 'Open-Meteo',
       forecast: omData ? 'Open-Meteo' : null,
+      week: omData ? 'Open-Meteo' : null,
+      alerts: null,
     },
     // Why a provider was skipped, so the UI can explain it instead of hiding it.
     notices: {
@@ -190,6 +206,22 @@ export async function searchLocations(query, { signal } = {}) {
   if (suggestionCache.size >= CACHE_LIMIT) suggestionCache.delete(suggestionCache.keys().next().value)
   suggestionCache.set(key, results)
   return results
+}
+
+// ───────── Air quality (Open-Meteo, fetched only when the Forecast view needs it) ─────────
+
+const airCache = new Map()
+const AIR_TTL = 30 * 60 * 1000
+
+/** Hourly air quality for a location, cached for 30 minutes so switching days or views never refetches. */
+export async function fetchAirQuality(location, opts) {
+  const key = `${location.lat.toFixed(3)},${location.lon.toFixed(3)}`
+  const hit = airCache.get(key)
+  if (hit && Date.now() - hit.at < AIR_TTL) return hit.data
+  const data = await om.fetchAirQuality(location.lat, location.lon, opts)
+  if (airCache.size > 20) airCache.delete(airCache.keys().next().value)
+  airCache.set(key, { at: Date.now(), data })
+  return data
 }
 
 export const openWeatherStatus = ow.openWeatherStatus

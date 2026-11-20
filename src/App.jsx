@@ -6,7 +6,6 @@ import Navigation, { Logo } from './components/Navigation/Navigation.jsx'
 import LocationSearch from './components/LocationSearch/LocationSearch.jsx'
 import FavouritesBar from './components/LocationSearch/FavouritesBar.jsx'
 import WeatherDashboard, { DashboardSkeleton } from './components/WeatherDashboard/WeatherDashboard.jsx'
-import ForecastView from './components/WeatherDashboard/ForecastView.jsx'
 import MusicView, { MiniPlayer } from './components/MusicPlayer/MusicView.jsx'
 import SettingsView from './components/Settings/SettingsView.jsx'
 import { useSettings } from './hooks/useSettings.jsx'
@@ -18,6 +17,8 @@ import * as fmt from './utils/format.js'
 
 // Leaflet is only needed on the map view, so it loads on demand.
 const WeatherRadar = lazy(() => import('./components/WeatherRadar/WeatherRadar.jsx'))
+// The interactive forecast (and its chart library) also loads on demand.
+const ForecastView = lazy(() => import('./components/WeatherDashboard/ForecastView.jsx'))
 
 function Welcome({ geo, onSearch, onLocate }) {
   const locating = geo.status === 'locating'
@@ -83,7 +84,10 @@ export default function App() {
   const resolved = useMemo(() => resolveTheme(envId, isNight), [envId, isNight])
   useEffect(() => { applyPalette(resolved) }, [resolved])
 
-  const changeView = (v) => { setView(v); window.scrollTo({ top: 0 }) }
+  // A forecast day's music mood, when the user opens Music from the Forecast page; null follows the live sky.
+  const [musicMood, setMusicMood] = useState(null)
+  const changeView = (v) => { setView(v); setMusicMood(null); window.scrollTo({ top: 0 }) }
+  const openMusicFor = (mood) => { changeView('music'); setMusicMood(mood) }
   const openSearch = () => { window.scrollTo({ top: 0 }); setSearchFocus((n) => n + 1) }
 
   const weatherView = (render) => {
@@ -104,7 +108,11 @@ export default function App() {
       />
     ))
   } else if (view === 'forecast') {
-    content = weatherView(() => <ForecastView data={data} units={settings.units} h12={settings.h12} />)
+    content = weatherView(() => (
+      <Suspense fallback={<DashboardSkeleton />}>
+        <ForecastView data={data} units={settings.units} h12={settings.h12} resolved={resolved} onOpenMusic={openMusicFor} />
+      </Suspense>
+    ))
   } else if (view === 'map') {
     content = (
       <Suspense fallback={<div className="view"><div className="skeleton sk-panel" style={{ height: '60vh' }} /></div>}>
@@ -112,7 +120,7 @@ export default function App() {
       </Suspense>
     )
   } else if (view === 'music') {
-    content = <MusicView resolved={resolved} simulated={simulated} />
+    content = <MusicView resolved={resolved} simulated={simulated} override={musicMood} />
   } else {
     content = (
       <SettingsView data={data} liveLabel={live?.label} location={location} geo={geo} onLocate={locate} onSearch={openSearch} />

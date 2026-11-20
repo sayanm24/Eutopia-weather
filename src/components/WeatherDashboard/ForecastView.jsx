@@ -1,52 +1,62 @@
-import { Sunrise, Sunset, Umbrella, Thermometer } from 'lucide-react'
-import HourlyForecast from '../HourlyForecast/HourlyForecast.jsx'
-import WeeklyForecast from '../WeeklyForecast/WeeklyForecast.jsx'
-import * as fmt from '../../utils/format.js'
+import { CloudOff } from 'lucide-react'
+import { ForecastExplorerProvider, useForecastExplorer } from '../../hooks/useForecastExplorer.jsx'
+import ForecastHeader from '../Forecast/ForecastHeader.jsx'
+import WeatherMetricsGrid from '../Forecast/WeatherMetricsGrid.jsx'
+import HourlyForecastTimeline from '../Forecast/HourlyForecastTimeline.jsx'
+import SevenDayForecast from '../Forecast/SevenDayForecast.jsx'
+import TemperatureRangeChart from '../Forecast/TemperatureRangeChart.jsx'
+import SelectedDayDetails from '../Forecast/SelectedDayDetails.jsx'
+import WeatherInsights from '../Forecast/WeatherInsights.jsx'
+import SoundOfTheSky from '../Forecast/SoundOfTheSky.jsx'
 
-export default function ForecastView({ data, units, h12 }) {
-  const { current, hourly, daily, tzOffset, location } = data
-  const next24 = hourly.slice(0, 24)
-  const maxPop = next24.length ? Math.max(...next24.map((h) => h.pop ?? 0)) : null
-  const rainTotal = next24.reduce((sum, h) => sum + (h.precip || 0), 0)
-  const temps = next24.map((h) => h.temp)
+function ForecastPage({ resolved, onOpenMusic }) {
+  const { data, days, setMetric, setRange } = useForecastExplorer()
+
+  const openInsights = (metric) => {
+    setMetric(metric)
+    setRange('day')
+    requestAnimationFrame(() => document.getElementById('weather-insights')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
 
   return (
-    <div className="view">
-      <header className="view-head">
-        <h1>Forecast</h1>
-        <p>{fmt.placeName(location)}</p>
-      </header>
+    <div className="view forecast">
+      <ForecastHeader />
+      <WeatherMetricsGrid onOpenInsights={openInsights} />
 
-      <dl className="metrics glass">
-        <div className="metric">
-          <dt><Sunrise size={15} aria-hidden="true" />Sunrise</dt>
-          <dd><span className="metric-value">{fmt.time(current.sunrise, tzOffset, h12)}</span></dd>
-        </div>
-        <div className="metric">
-          <dt><Sunset size={15} aria-hidden="true" />Sunset</dt>
-          <dd><span className="metric-value">{fmt.time(current.sunset, tzOffset, h12)}</span></dd>
-        </div>
-        <div className="metric">
-          <dt><Umbrella size={15} aria-hidden="true" />Rain chance, 24 h</dt>
-          <dd>
-            <span className="metric-value">{maxPop != null ? Math.round(maxPop) : '—'}</span>
-            {maxPop != null && <span className="metric-unit">%</span>}
-            {next24.length > 0 && <span className="metric-note">{rainTotal.toFixed(1)} mm expected</span>}
-          </dd>
-        </div>
-        <div className="metric">
-          <dt><Thermometer size={15} aria-hidden="true" />Range, 24 h</dt>
-          <dd>
-            <span className="metric-value">
-              {temps.length ? `${fmt.tempText(Math.min(...temps), units)} – ${fmt.tempText(Math.max(...temps), units)}` : '—'}
-            </span>
-          </dd>
-        </div>
-      </dl>
+      {days.length === 0 ? (
+        <section className="panel glass">
+          <p className="empty"><CloudOff size={16} aria-hidden="true" />
+            The hourly and daily forecast couldn’t be loaded, so no forecast is shown. Current conditions above are live.
+          </p>
+        </section>
+      ) : (
+        <>
+          <HourlyForecastTimeline />
+          <div className="forecast-split">
+            <SevenDayForecast />
+            <TemperatureRangeChart />
+          </div>
+          <SelectedDayDetails />
+          <WeatherInsights />
+        </>
+      )}
 
-      <HourlyForecast hourly={hourly} tzOffset={tzOffset} units={units} h12={h12} count={48} title="Next 48 hours" />
-      <WeeklyForecast daily={daily} tzOffset={tzOffset} units={units} h12={h12} detailed />
-      {data.sources.forecast && <p className="fineprint">Forecast data: {data.sources.forecast}. Tap a day for details.</p>}
+      <SoundOfTheSky resolved={resolved} onOpenMusic={onOpenMusic} />
+      {data.sources.forecast && (
+        <p className="fineprint">
+          Current conditions: {data.sources.current} · Forecast: {data.sources.week || data.sources.forecast}
+ · Air quality: Open-Meteo · Times are local to {data.location.name}.
+        </p>
+      )}
     </div>
+  )
+}
+
+/** Interactive forecast: every section follows the selected day, hour and metric held in shared state. */
+export default function ForecastView({ data, units, h12, resolved, onOpenMusic }) {
+  return (
+    <ForecastExplorerProvider data={data} units={units} h12={h12}>
+      <ForecastPage resolved={resolved} onOpenMusic={onOpenMusic} />
+    </ForecastExplorerProvider>
   )
 }
